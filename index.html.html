@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebXR 3D Model Viewer</title>
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/donmccurdy/aframe-extras@v6.1.1/dist/aframe-extras.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+    
+    #controls {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 1000;
+      max-width: 300px;
+    }
+    
+    #controls h3 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+    }
+    
+    #controls input[type="file"] {
+      display: none;
+    }
+    
+    #controls label {
+      display: block;
+      background: #4CAF50;
+      color: white;
+      padding: 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    
+    #controls label:hover {
+      background: #45a049;
+    }
+    
+    #fileName {
+      font-size: 12px;
+      color: #aaa;
+      margin-bottom: 10px;
+      word-break: break-all;
+    }
+    
+    .control-group {
+      margin-bottom: 15px;
+    }
+    
+    .control-group label {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 5px;
+      background: none;
+      padding: 0;
+      cursor: default;
+    }
+    
+    .control-group label:hover {
+      background: none;
+    }
+    
+    .control-group input[type="range"] {
+      width: 100%;
+    }
+    
+    .control-group button {
+      background: #2196F3;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 5px;
+      margin-top: 5px;
+    }
+    
+    .control-group button:hover {
+      background: #0b7dda;
+    }
+    
+    #info {
+      font-size: 11px;
+      color: #888;
+      margin-top: 10px;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <h3>🎮 WebXR Viewer</h3>
+    
+    <input type="file" id="fileInput" accept=".glb,.gltf">
+    <label for="fileInput">📁 Завантажити модель (.glb/.gltf)</label>
+    
+    <div id="fileName"></div>
+    
+    <div class="control-group">
+      <label>Масштаб: <span id="scaleValue">1</span></label>
+      <input type="range" id="scaleSlider" min="0.1" max="5" step="0.1" value="1">
+    </div>
+    
+    <div class="control-group">
+      <label>Висота: <span id="heightValue">0</span></label>
+      <input type="range" id="heightSlider" min="-5" max="5" step="0.1" value="0">
+    </div>
+    
+    <div class="control-group">
+      <button id="resetBtn">🔄 Скинути</button>
+      <button id="animBtn">▶️ Анімація</button>
+    </div>
+    
+    <div id="info">
+      💡 Керування:<br>
+      • Миша: обертання камери<br>
+      • WASD: переміщення<br>
+      • VR кнопка: режим WebXR
+    </div>
+  </div>
+
+  <a-scene>
+    <!-- Камера з контролерами -->
+    <a-entity id="rig" position="0 1.6 3">
+      <a-camera look-controls wasd-controls>
+        <a-cursor></a-cursor>
+      </a-camera>
+    </a-entity>
+
+    <!-- Освітлення -->
+    <a-light type="ambient" color="#BBB" intensity="0.5"></a-light>
+    <a-light type="directional" color="#FFF" intensity="0.8" position="2 4 3"></a-light>
+    <a-light type="point" color="#F4F4F4" intensity="0.3" position="-2 2 2"></a-light>
+
+    <!-- Модель (буде завантажена динамічно) -->
+    <a-entity 
+      id="model" 
+      position="0 0 0" 
+      scale="1 1 1"
+      animation-mixer="clip: *"
+      rotation="0 0 0">
+    </a-entity>
+
+    <!-- Підлога прибрана для чистого перегляду -->
+
+    <!-- Небо -->
+    <a-sky color="#87CEEB"></a-sky>
+  </a-scene>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const fileName = document.getElementById('fileName');
+    const modelEntity = document.getElementById('model');
+    const scaleSlider = document.getElementById('scaleSlider');
+    const scaleValue = document.getElementById('scaleValue');
+    const heightSlider = document.getElementById('heightSlider');
+    const heightValue = document.getElementById('heightValue');
+    const resetBtn = document.getElementById('resetBtn');
+    const animBtn = document.getElementById('animBtn');
+    
+    let currentModelUrl = null;
+    let animationEnabled = true;
+
+    // Завантаження файлу
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // Видалення попередньої моделі
+      if (currentModelUrl) {
+        URL.revokeObjectURL(currentModelUrl);
+      }
+
+      // Створення URL для моделі
+      currentModelUrl = URL.createObjectURL(file);
+      fileName.textContent = `✓ Завантажено: ${file.name}`;
+
+      // Встановлення моделі
+      modelEntity.setAttribute('gltf-model', currentModelUrl);
+      
+      // Скидання параметрів
+      resetModel();
+    });
+
+    // Контроль масштабу
+    scaleSlider.addEventListener('input', (e) => {
+      const scale = e.target.value;
+      scaleValue.textContent = scale;
+      modelEntity.setAttribute('scale', `${scale} ${scale} ${scale}`);
+    });
+
+    // Контроль висоти
+    heightSlider.addEventListener('input', (e) => {
+      const height = e.target.value;
+      heightValue.textContent = height;
+      const pos = modelEntity.getAttribute('position');
+      modelEntity.setAttribute('position', `${pos.x} ${height} ${pos.z}`);
+    });
+
+    // Скидання моделі
+    resetBtn.addEventListener('click', resetModel);
+
+    function resetModel() {
+      scaleSlider.value = 1;
+      scaleValue.textContent = 1;
+      heightSlider.value = 0;
+      heightValue.textContent = 0;
+      modelEntity.setAttribute('scale', '1 1 1');
+      modelEntity.setAttribute('position', '0 0 0');
+      modelEntity.setAttribute('rotation', '0 0 0');
+    }
+
+    // Контроль анімації
+    animBtn.addEventListener('click', () => {
+      animationEnabled = !animationEnabled;
+      if (animationEnabled) {
+        modelEntity.setAttribute('animation-mixer', 'clip: *');
+        animBtn.textContent = '⏸️ Пауза';
+      } else {
+        modelEntity.removeAttribute('animation-mixer');
+        animBtn.textContent = '▶️ Анімація';
+      }
+    });
+  </script>
+</body>
+</html>
